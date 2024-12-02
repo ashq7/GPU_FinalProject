@@ -4,6 +4,8 @@ using namespace std;
 const int DSIZE = 8;
 int matrixA [DSIZE][DSIZE]= {};
 int matrixA_stencilled [DSIZE][DSIZE]= {};
+int matrixB [DSIZE][DSIZE]= {};
+int matrixB_stencilled [DSIZE][DSIZE]= {};
 const int RADIUS = 3;
 
 void stencil2d(int in[DSIZE][DSIZE], int out[DSIZE][DSIZE]){
@@ -32,7 +34,9 @@ int main(){
     for (int i=0; i<DSIZE; i++){
         for(int j=0; j<DSIZE; j++){
             matrixA[i][j]= (rand() % 10); //upper limit on integers?
+            matrixB[i][j]= (rand() % 10);
             matrixA_stencilled[i][j]=0;
+            matrixB_stencilled[i][j]=0;
         }
     }
 
@@ -45,12 +49,31 @@ int main(){
         }
         cout<<"\n";
 
+    cout<<"Matrix B: ";
+        for (int i=0; i<DSIZE; i++){
+            for (int j=0; j<DSIZE; j++){
+                cout<<matrixB[i][j]<<" ";
+            }
+            cout<<"\n";
+        }
+        cout<<"\n";
+
     stencil2d(matrixA, matrixA_stencilled);
+    stencil2d(matrixB, matrixB_stencilled);
     
     cout<<"Matrix A stencilled: ";
         for (int i=0; i<DSIZE; i++){
             for (int j=0; j<DSIZE; j++){
                 cout<<matrixA_stencilled[i][j]<<" ";
+            }
+            cout<<"\n";
+        }
+        cout<<"\n";
+
+    cout<<"Matrix B stencilled: ";
+        for (int i=0; i<DSIZE; i++){
+            for (int j=0; j<DSIZE; j++){
+                cout<<matrixB_stencilled[i][j]<<" ";
             }
             cout<<"\n";
         }
