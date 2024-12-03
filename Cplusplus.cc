@@ -7,6 +7,7 @@ int matrixA_stencilled [DSIZE][DSIZE]= {};
 int matrixB [DSIZE][DSIZE]= {};
 int matrixB_stencilled [DSIZE][DSIZE]= {};
 int matrixC [DSIZE][DSIZE]= {};
+int matrixD [DSIZE][DSIZE]= {};
 const int RADIUS = 3;
 
 void stencil2d(int in[DSIZE][DSIZE], int out[DSIZE][DSIZE]){
@@ -51,6 +52,7 @@ int main(){
             matrixA_stencilled[i][j]=0;
             matrixB_stencilled[i][j]=0;
             matrixC[i][j]=0;
+            matrixD[i][j]= 0;
         }
     }
 
@@ -93,7 +95,17 @@ int main(){
         }
         cout<<"\n";
 
+    matrix_mul(matrixA, matrixB, matrixD);
     matrix_mul(matrixA_stencilled, matrixB_stencilled, matrixC);
+
+    cout<<"For debugging: Matrix A * Matrix B: ";
+        for (int i=0; i<DSIZE; i++){
+            for (int j=0; j<DSIZE; j++){
+                cout<<matrixD[i][j]<<" ";
+            }
+            cout<<"\n";
+        }
+        cout<<"\n";
 
     cout<<"Matrix A stenciled * Matrix B stencilled: ";
         for (int i=0; i<DSIZE; i++){
