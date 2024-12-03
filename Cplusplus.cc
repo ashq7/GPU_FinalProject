@@ -1,7 +1,7 @@
 #include <iostream>
 using namespace std;
 
-const int DSIZE = 8;
+const int DSIZE = 512;
 int matrixA [DSIZE][DSIZE]= {};
 int matrixA_stencilled [DSIZE][DSIZE]= {};
 int matrixB [DSIZE][DSIZE]= {};
