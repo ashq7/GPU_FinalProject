@@ -37,7 +37,7 @@ void matrix_mul (int a[DSIZE][DSIZE], int b[DSIZE][DSIZE], int c[DSIZE][DSIZE]){
         for(int j=0; j<DSIZE; j++){
             int result=0;
             for (int k=0; k<DSIZE; k++){
-                result += a[i][k]*b[k][i];
+                result += a[i][k]*b[k][j];
             }
             c[i][j]=result;
         }
