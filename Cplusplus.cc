@@ -6,6 +6,7 @@ int matrixA [DSIZE][DSIZE]= {};
 int matrixA_stencilled [DSIZE][DSIZE]= {};
 int matrixB [DSIZE][DSIZE]= {};
 int matrixB_stencilled [DSIZE][DSIZE]= {};
+int matrixC [DSIZE][DSIZE]= {};
 const int RADIUS = 3;
 
 void stencil2d(int in[DSIZE][DSIZE], int out[DSIZE][DSIZE]){
@@ -30,6 +31,18 @@ void stencil2d(int in[DSIZE][DSIZE], int out[DSIZE][DSIZE]){
     }
 }
 
+void matrix_mul (int a[DSIZE][DSIZE], int b[DSIZE][DSIZE], int c[DSIZE][DSIZE]){
+     for (int i=0; i<DSIZE; i++){
+        for(int j=0; j<DSIZE; j++){
+            int result=0;
+            for (int k=0; k<DSIZE; k++){
+                result += a[i][k]*b[k][i];
+            }
+            c[i][j]=result;
+        }
+     }
+}
+
 int main(){
     for (int i=0; i<DSIZE; i++){
         for(int j=0; j<DSIZE; j++){
@@ -37,6 +50,7 @@ int main(){
             matrixB[i][j]= (rand() % 10);
             matrixA_stencilled[i][j]=0;
             matrixB_stencilled[i][j]=0;
+            matrixC[i][j]=0;
         }
     }
 
@@ -79,5 +93,15 @@ int main(){
         }
         cout<<"\n";
 
+    matrix_mul(matrixA_stencilled, matrixB_stencilled, matrixC);
+
+    cout<<"Matrix A stenciled * Matrix B stencilled: ";
+        for (int i=0; i<DSIZE; i++){
+            for (int j=0; j<DSIZE; j++){
+                cout<<matrixC[i][j]<<" ";
+            }
+            cout<<"\n";
+        }
+        cout<<"\n";
     
 }
