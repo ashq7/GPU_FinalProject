@@ -1,5 +1,9 @@
 #include <stdio.h>
 #include <algorithm>
+#include <stdlib.h>
+#include <time.h>
+#include <iostream>
+#include <ostream>
 
 using namespace std;
 
@@ -48,13 +52,13 @@ __global__ void stencil_2d(int *in, int *out) {
 }
 
 // Square matrix multiplication on CPU : C = A * B
-void matrix_mul_cpu(const float *A, const float *B, float *C, int size) {
+void matrix_mul_cpu(const int *A, const int *B, int *C, int size) {
   //FIXME:
   // i iterates over rows of matrix A
   for (int i = 0; i<size; i++){
     // j iterates over columns of matrix B
     for (int j = 0; j<size; j++){
-        float temp = 0;
+        int temp = 0;
         // k indexes which item in the ith row of A and jth column of B we are multiplying
         for (int k = 0; k<size; k++){
             //i is analagous to idx, j to idy, size to n
@@ -66,7 +70,7 @@ void matrix_mul_cpu(const float *A, const float *B, float *C, int size) {
 }
 
 // Square matrix multiplication on GPU : C = A * B
-__global__ void matrix_mul_gpu(const float *A, const float *B, float *C, int size) {
+__global__ void matrix_mul_gpu(const int *A, const int *B, int *C, int size) {
 
     //FIXME:
     // create thread x index
@@ -75,7 +79,7 @@ __global__ void matrix_mul_gpu(const float *A, const float *B, float *C, int siz
     int idy = blockIdx.x * blockDim.x + threadIdx.x;;
     // Make sure we are not out of range
     if ((idx < size) && (idy < size)) {
-        float temp = 0;
+        int temp = 0;
         for (int i = 0; i < size; i++){
             //FIXME : Add dot product of row and column
             temp += A [idx * size +idy] * B [idy * size +idx];
@@ -84,6 +88,34 @@ __global__ void matrix_mul_gpu(const float *A, const float *B, float *C, int siz
     }
 
 }
+
+// Error Checking for stencil
+    int error_stencil (*int stencilled, *int original){
+        for (int i = 0; i < DSIZE; ++i) {
+            for (int j = 0; j < DSIZE; ++j) {
+
+                if (i < RADIUS || DSIZE-i<= RADIUS) {
+                    if (stencilled[j+i*DSIZE] != original) {
+                        printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, out[j+i*(DSIZE)], 1);
+                        return -1;
+                    }
+                }
+                else if (j < RADIUS || DSIZE-j<= RADIUS) {
+                    if (stencilled[j+i*(DSIZE)] != original) {
+                        printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, out[j+i*(DSIZE)], 1);
+                        return -1;
+                    }
+                }		 
+                else { // EDIT- wrong!
+                    if (stencilled[j+i*(DSIZE)] != 1 + 4 * RADIUS) {
+                        printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, out[j+i*(DSIZE)], 1 + 4*RADIUS);
+                        return -1;
+                    }
+                }
+            }
+	    }
+        return 0;
+    }
 
 // error checking macro from matrix multiplication
 #define cudaCheckErrors(msg)                                   \
@@ -130,11 +162,11 @@ int main(void) {
     }
 
     // Allocate device memory 
-    cudaMalloc(&d_A, size);
-    cudaMalloc(&d_B, size);
-    cudaMalloc(&d_A_stencilled, size);
-    cudaMalloc(&d_B_stencilled, size);
-    cudaMalloc(&d_C, size);
+    cudaMalloc((void **)&d_A, size);
+    cudaMalloc((void **)&d_B, size);
+    cudaMalloc((void **)&d_A_stencilled, size);
+    cudaMalloc((void **)&d_B_stencilled, size);
+    cudaMalloc((void **)&d_C, size);
     cudaCheckErrors("After Memory Allocation");
 
     // Copy from host to device
@@ -144,63 +176,38 @@ int main(void) {
     cudaMemcpy(d_B_stencilled, h_B_stencilled, size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_C, h_C, size, cudaMemcpyHostToDevice);
 
-	// Alloc space for host copies and setup values
-	in = (int *)malloc(size); fill_ints(in, (DSIZE)*(DSIZE));
-	out = (int *)malloc(size); fill_ints(out, (DSIZE)*(DSIZE));
-
-	// Alloc space for device copies
-	cudaMalloc((void **)&d_in, size);
-	cudaMalloc((void **)&d_out, size);
-
-	// Copy to device
-	cudaMemcpy(d_in, in, size, cudaMemcpyHostToDevice);
-	cudaMemcpy(d_out, out, size, cudaMemcpyHostToDevice);
-
 	// Launch stencil_2d() kernel on GPU
 	int gridSize = DSIZE/BLOCK_SIZE; //from Asignment 2 mult_matrix.cu
 	dim3 grid(gridSize, gridSize);
 	dim3 block(BLOCK_SIZE, BLOCK_SIZE);
 	
-	// Properly set memory address for first element on which the stencil will be applied
-	stencil_2d<<<grid,block>>>(d_in + RADIUS*(DSIZE) + RADIUS , d_out + RADIUS*(DSIZE) + RADIUS);
+	stencil_2d<<<grid,block>>>(d_A + RADIUS*(DSIZE) + RADIUS , d_A_stencilled + RADIUS*(DSIZE) + RADIUS); //QUESTION: confused how the plus works?
+	stencil_2d<<<grid,block>>>(d_B + RADIUS*(DSIZE) + RADIUS , d_B_stencilled + RADIUS*(DSIZE) + RADIUS);
+
+    //Launch matrix_mul kernel on GPU
+    matrix_mul_gpu<<<grid,block>>>(d_A_stencilled, d_B_stencilled, d_C, size);
+
 
 	// Copy result back to host
-	cudaMemcpy(in, d_in, size, cudaMemcpyDeviceToHost);
-	cudaMemcpy(out, d_out, size, cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_A_stencilled, d_A_stencilled, size, cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_B_stencilled, d_B_stencilled, size, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
 
-	// Error Checking
-	for (int i = 0; i < DSIZE; ++i) {
-		for (int j = 0; j < DSIZE; ++j) {
+	
+	
 
-			if (i < RADIUS || DSIZE-i<= RADIUS) {
-				if (out[j+i*DSIZE] != 1) {
-					printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, out[j+i*(DSIZE)], 1);
-					return -1;
-				}
-			}
-			else if (j < RADIUS || DSIZE-j<= RADIUS) {
-				if (out[j+i*(DSIZE)] != 1) {
-					printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, out[j+i*(DSIZE)], 1);
-					return -1;
-				}
-			}		 
-			else {
-				if (out[j+i*(DSIZE)] != 1 + 4 * RADIUS) {
-					printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, out[j+i*(DSIZE)], 1 + 4*RADIUS);
-					return -1;
-				}
-			}
-		}
-	}
+	// Free memory 
+    free(h_A);
+    free(h_B);
+    free(h_A_stencilled);
+    free(h_B_stencilled);
+    free(h_C);
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_A_stencilled);
+    cudaFree(d_B_stencilled);
+    cudaFree(d_C);
 
-	// Cleanup
-	free(in);
-	free(out);
-	cudaFree(d_in);
-	cudaFree(d_out);
-	printf("Success!\n");
-
-	return 0;
 }
 
 
