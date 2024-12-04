@@ -54,7 +54,7 @@ int error_stencil(int in[DSIZE][DSIZE], int out[DSIZE][DSIZE]){
                 }
             }
 		 
-            else { // EDIT- wrong!
+            else { 
                 int expectedResult = in[i][j];
                 for (int k=1; k<=RADIUS; k++){
                     expectedResult +=in[i+k][j];
