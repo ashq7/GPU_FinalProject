@@ -7,8 +7,8 @@
 
 using namespace std;
 
-//#define N 64 -what was N? I think N+2*Radius = DSIZE
-#define DSIZE 512
+//#define N 64 -what was N? I think N+2*Radius = DSIZE: DSIZE should be N
+#define DSIZE 8 //NEED TO CHANGE BACK TO 512
 #define RADIUS 3
 #define BLOCK_SIZE 32
 
@@ -16,9 +16,9 @@ using namespace std;
 __global__ void stencil_2d(int *in, int *out) {
 
 	__shared__ int temp[BLOCK_SIZE + 2 * RADIUS][BLOCK_SIZE + 2 * RADIUS];
-	int gindex_x = threadIdx.x + blockIdx.x * blockDim.x; 
+	int gindex_x = threadIdx.x + blockIdx.x * blockDim.x; //column
 	int lindex_x = threadIdx.x + RADIUS;
-	int gindex_y = threadIdx.y + blockIdx.y * blockDim.y;
+	int gindex_y = threadIdx.y + blockIdx.y * blockDim.y; //row
 	int lindex_y = threadIdx.y + RADIUS;
 
 	// Read input elements into shared memory
@@ -34,7 +34,6 @@ __global__ void stencil_2d(int *in, int *out) {
 		temp[lindex_x][lindex_y-RADIUS]=in[(gindex_y - RADIUS)+ DSIZE * gindex_x];
 		temp[lindex_x][lindex_y + BLOCK_SIZE] = in[gindex_y + BLOCK_SIZE + DSIZE * gindex_x];
 	}
-
 
 	// Apply the stencil
 	int result = 0;
@@ -53,7 +52,6 @@ __global__ void stencil_2d(int *in, int *out) {
 
 // Square matrix multiplication on CPU : C = A * B
 void matrix_mul_cpu(const int *A, const int *B, int *C, int size) {
-  //FIXME:
   // i iterates over rows of matrix A
   for (int i = 0; i<size; i++){
     // j iterates over columns of matrix B
@@ -72,7 +70,6 @@ void matrix_mul_cpu(const int *A, const int *B, int *C, int size) {
 // Square matrix multiplication on GPU : C = A * B
 __global__ void matrix_mul_gpu(const int *A, const int *B, int *C, int size) {
 
-    //FIXME:
     // create thread x index
     // create thread y index
     int idx = blockIdx.y * blockDim.y + threadIdx.y;
@@ -81,7 +78,7 @@ __global__ void matrix_mul_gpu(const int *A, const int *B, int *C, int size) {
     if ((idx < size) && (idy < size)) {
         int temp = 0;
         for (int i = 0; i < size; i++){
-            //FIXME : Add dot product of row and column
+            //Add dot product of row and column
             temp += A [idx * size +idy] * B [idy * size +idx];
         }
         C[idx*size+idy] = temp;                    
@@ -90,34 +87,60 @@ __global__ void matrix_mul_gpu(const int *A, const int *B, int *C, int size) {
 }
 
 // Error Checking for stencil
-    int error_stencil (*int stencilled, *int original){
-        for (int i = 0; i < DSIZE; ++i) {
-            for (int j = 0; j < DSIZE; ++j) {
+int error_stencil (int* stencilled, int* original){
+    for (int i = 0; i < DSIZE; ++i) {
+        for (int j = 0; j < DSIZE; ++j) {
 
-                if (i < RADIUS || DSIZE-i<= RADIUS) {
-                    if (stencilled[j+i*DSIZE] != original) {
-                        printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, out[j+i*(DSIZE)], 1);
-                        return -1;
-                    }
-                }
-                else if (j < RADIUS || DSIZE-j<= RADIUS) {
-                    if (stencilled[j+i*(DSIZE)] != original) {
-                        printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, out[j+i*(DSIZE)], 1);
-                        return -1;
-                    }
-                }		 
-                else { // EDIT- wrong!
-                    if (stencilled[j+i*(DSIZE)] != 1 + 4 * RADIUS) {
-                        printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, out[j+i*(DSIZE)], 1 + 4*RADIUS);
-                        return -1;
-                    }
+            if (i < RADIUS || DSIZE-i<= RADIUS) {
+                if (stencilled[i*DSIZE+j] != original[i*DSIZE+j]) {
+                    printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, stencilled[i*DSIZE+j], original[i*DSIZE+j]);
+                    return -1;
                 }
             }
-	    }
-        return 0;
+            else if (j < RADIUS || DSIZE-j<= RADIUS) {
+                if (stencilled[i*DSIZE+j] != original[i*DSIZE+j]) {
+                    printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, stencilled[i*DSIZE+j], original[i*DSIZE+j]);
+                    return -1;
+                }
+            }		 
+            else { // EDIT- wrong!
+                int expectedResult = original[i*DSIZE+j];
+                for (int k=1; k<=RADIUS; k++){
+                    expectedResult +=original[(i+k)*DSIZE+j];
+                    expectedResult +=original[(i-k)*DSIZE+j];
+                    expectedResult +=original[i+(j+k)*DSIZE];
+                    expectedResult +=original[i+(j-k)*DSIZE];
+                }
+                if (stencilled[i*DSIZE+j] != expectedResult) {
+                    printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, stencilled[i*DSIZE+j], expectedResult);
+                    return -1;
+                }
+            }
+        }
     }
+    printf("no stencil error \n");
+    return 0;
+}
 
-// error checking macro from matrix multiplication
+// Error checking for matrix multiplication - modify from cc to work for gpu
+int error_matrix_mul_gpu(const int *A, const int *B, int *C, int size){
+     for (int i=0; i<size; i++){
+        for(int j=0; j<size; j++){
+            int expectedResult=0;
+            for (int k=0; k<size; k++){
+                expectedResult += A[i*size+k]*B[k*size+j];
+            }
+            if (C[i*size+j]!=expectedResult){
+                printf("Multiplication wrong at [%d,%d], was: %d, should be: %d\n", i,j, C[i*size+j], expectedResult);
+                    return -1;
+            }
+        }
+     }
+     printf("no multiplication error \n");
+     return 0;
+}
+
+// Cuda error checking macro (from matrix multiplication assignment)
 #define cudaCheckErrors(msg)                                   \
    do {                                                        \
        cudaError_t __err = cudaGetLastError();                 \
@@ -161,6 +184,18 @@ int main(void) {
         h_C[i] = 0;
     }
 
+    printf("Matrix A: ");
+    for (int i = 0; i < size; i++) {
+        printf("%d ", h_A[i]);
+    }
+    printf("\n");
+
+    printf("Matrix B: ");
+    for (int i = 0; i < size; i++) {
+        printf("%d ", h_B[i]);
+    }
+    printf("\n");
+    
     // Allocate device memory 
     cudaMalloc((void **)&d_A, size);
     cudaMalloc((void **)&d_B, size);
@@ -187,14 +222,32 @@ int main(void) {
     //Launch matrix_mul kernel on GPU
     matrix_mul_gpu<<<grid,block>>>(d_A_stencilled, d_B_stencilled, d_C, size);
 
-
 	// Copy result back to host
 	cudaMemcpy(h_A_stencilled, d_A_stencilled, size, cudaMemcpyDeviceToHost);
 	cudaMemcpy(h_B_stencilled, d_B_stencilled, size, cudaMemcpyDeviceToHost);
     cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
 
+    error_stencil(h_A, h_A_stencilled);
+    error_stencil(h_B, h_B_stencilled);
+    error_matrix_mul_gpu(h_A_stencilled, h_B_stencilled, h_C, DSIZE);
+
+	printf("Matrix A stencilled: ");
+    for (int i = 0; i < size; i++) {
+        printf("%d ", h_A_stencilled[i]);
+    }
+    printf("\n");
 	
-	
+    printf("Matrix B stencilled: ");
+    for (int i = 0; i < size; i++) {
+        printf("%d ", h_B_stencilled[i]);
+    }
+    printf("\n");
+
+    printf("Matrix A stencilled * Matrix B stencilled: ");
+    for (int i = 0; i < size; i++) {
+        printf("%d ", h_C[i]);
+    }
+    printf("\n");
 
 	// Free memory 
     free(h_A);
