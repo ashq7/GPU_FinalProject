@@ -7,32 +7,23 @@
 
 using namespace std;
 
-//#define N 64 -what was N? I think N+2*Radius = DSIZE: DSIZE should be N
-#define DSIZE 512 //NEED TO CHANGE BACK TO 512
+#define DSIZE 512 
 #define RADIUS 3
-#define BLOCK_SIZE 4
-
+#define BLOCK_SIZE 32
 
 __global__ void stencil_2d(int *in, int *out) {
-
-	//__shared__ int temp[BLOCK_SIZE + 2 * RADIUS][BLOCK_SIZE + 2 * RADIUS];
 	
 	int row = threadIdx.y + blockIdx.y * blockDim.y; //row - can switch row and column?
     int column = threadIdx.x + blockIdx.x * blockDim.x; //column
 
-    //int lindex_x = threadIdx.x + RADIUS;
-	//int lindex_y = threadIdx.y + RADIUS;
-
 	// Read input elements into shared memory
-	//int size = N + 2 * RADIUS; //becomes DSIZE
 	int result = in[column + DSIZE * row]; 
     out[column+DSIZE*row] = result;
 
 	if (row >= RADIUS && column >= RADIUS && (DSIZE-row) > RADIUS && (DSIZE-column) > RADIUS ) {
 		// Apply the stencil
-        //int result = 0;
         for (int offset = -RADIUS; offset <= RADIUS; offset++){
-            //__syncthreads(); //makes sure we have access to everything in temp accessed across multiple threads
+            __syncthreads(); //makes sure we have access to everything in temp accessed across multiple threads
             
             //avoid double-counting 
             if(offset!=0){
@@ -43,7 +34,6 @@ __global__ void stencil_2d(int *in, int *out) {
         // Store the result
         out[column+DSIZE*row] = result;
 	}
-    //printf("at index [%d,%d], result is: %d\n", row,column, result);
 }
 
 // Square matrix multiplication on CPU : C = A * B
@@ -149,14 +139,6 @@ int error_matrix_mul_gpu(const int *A, const int *B, int *C, int size){
        }                                                       \
    } while (0)
 
-
-void fill_ints(int *x, int n) {
-   // Store the result
-   // https://en.cppreference.com/w/cpp/algorithm/fill_n
-   fill_n(x, n, 1);
-   //takes in matrix, starts at pointer and fills subsequent n with value (1 here)
-}
-
 //Elliott helped me with print Matrix function
 int printMatrix(int *A, int limit = 8) {
     std::cout<<"-              -\n";
@@ -171,103 +153,86 @@ int printMatrix(int *A, int limit = 8) {
     return 0;
 }
 
-
 int main(void) {
     //with managed memory, we only need one version of each matrix (not host AND device)
-    int *A, *h_B, *h_C; //host copies
+    int *A, *B, *C, *A_stencilled, *B_stencilled; //host copies
+    
+    // These are used for timing
+    clock_t t0, t1, t2;
+    double t1sum=0.0;
+    double t2sum=0.0;
+
+    // start timing
+    t0 = clock();
+
+    // Allocate device memory 
+    int size = (DSIZE)*(DSIZE) * sizeof(int);
+    cudaMallocManaged(&A, size);
+    cudaMallocManaged(&B, size);
+    cudaMallocManaged(&A_stencilled, size);
+    cudaMallocManaged(&B_stencilled, size);
+    cudaMallocManaged(&C, size);
+    cudaCheckErrors("After Managed Memory Allocation");
 
     //initialize values
     for (int i = 0; i < DSIZE*DSIZE; i++){
-        h_A[i] = (rand() % 10);
-        h_B[i] = (rand() % 10);
-        h_A_stencilled[i]=0;
-        h_B_stencilled[i]=0;
-        h_C[i] = 0;
+        A[i] = (rand() % 10);
+        B[i] = (rand() % 10);
+        A_stencilled[i]=0;
+        B_stencilled[i]=0;
+        C[i] = 0;
     }
-    printf("Matrix A: \n");
-    printMatrix(h_A);
-    printf("Matrix B: \n");
-    printMatrix(h_B);
-    
-    // Allocate device memory 
-    cudaMallocManaged((void **)&d_A, size);
-    cudaMallocManaged((void **)&d_B, size);
-    cudaMallocManaged((void **)&d_A_stencilled, size);
-    cudaMallocManaged((void **)&d_B_stencilled, size);
-    cudaMallocManaged((void **)&d_C, size);
-    cudaCheckErrors("After Memory Allocation");
+    cudaCheckErrors("After Filling Initial Values");
 
-    // Copy from host to device
-    cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_A_stencilled, h_A_stencilled, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_B_stencilled, h_B_stencilled, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_C, h_C, size, cudaMemcpyHostToDevice);
-    cudaCheckErrors("After copy from host to device");
+    printf("Matrix A: \n");
+    printMatrix(A);
+    printf("Matrix B: \n");
+    printMatrix(B);
+
+    // Initialization timing
+    t1 = clock();
+    t1sum = ((double)(t1-t0))/CLOCKS_PER_SEC;
+    printf("Init took %f seconds.  Begin compute\n", t1sum);
 
 	// Launch stencil_2d() kernel on GPU
 	int gridSize = DSIZE/BLOCK_SIZE; //from Asignment 2 mult_matrix.cu
 	dim3 grid(gridSize, gridSize);
 	dim3 block(BLOCK_SIZE, BLOCK_SIZE);
 	
-	stencil_2d<<<grid,block>>>(d_A , d_A_stencilled); //QUESTION: confused how the plus works?
+	stencil_2d<<<grid,block>>>(A , A_stencilled); //QUESTION: confused how the plus works?
+    cudaDeviceSynchronize();
     cudaCheckErrors("After applying stencil to matrix A");
-	stencil_2d<<<grid,block>>>(d_B , d_B_stencilled);
+	stencil_2d<<<grid,block>>>(B , B_stencilled);
+    cudaDeviceSynchronize();
     cudaCheckErrors("After applying stencil to matrix B");
 
-    cudaMemcpy(h_A_stencilled, d_A_stencilled, size, cudaMemcpyDeviceToHost);
-	cudaMemcpy(h_B_stencilled, d_B_stencilled, size, cudaMemcpyDeviceToHost);
-
     //Launch matrix_mul kernel on GPU
-    matrix_mul_gpu<<<grid,block>>>(d_A_stencilled, d_B_stencilled, d_C, DSIZE);
+    matrix_mul_gpu<<<grid,block>>>(A_stencilled, B_stencilled, C, DSIZE);
+    cudaDeviceSynchronize();
     cudaCheckErrors("After applying matrix multiplication");
 
-	// Copy result back to host
-	cudaMemcpy(h_A_stencilled, d_A_stencilled, size, cudaMemcpyDeviceToHost);
-	cudaMemcpy(h_B_stencilled, d_B_stencilled, size, cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
-
-    error_stencil(h_A_stencilled, h_A);
-    error_stencil(h_B_stencilled, h_B);
-    error_matrix_mul_gpu(h_A_stencilled, h_B_stencilled, h_C, DSIZE);
+    error_stencil(A_stencilled, A);
+    error_stencil(B_stencilled, B);
+    error_matrix_mul_gpu(A_stencilled, B_stencilled, C, DSIZE);
 
     printf("Matrix A stencilled: \n");
-    printMatrix(h_A_stencilled);
+    printMatrix(A_stencilled);
     printf("Matrix B stencilled: \n");
-    printMatrix(h_B_stencilled);
+    printMatrix(B_stencilled);
     printf("Matrix A stencilled * Matrix B stencilled: \n");
-    printMatrix(h_C);
+    printMatrix(C);
 
-	// printf("Matrix A stencilled: ");
-    // for (int i = 0; i < size; i++) {
-    //     printf("%d ", h_A_stencilled[i]);
-    // }
-    // printf("\n");
-	
-    // printf("Matrix B stencilled: ");
-    // for (int i = 0; i < size; i++) {
-    //     printf("%d ", h_B_stencilled[i]);
-    // }
-    // printf("\n");
-
-    // printf("Matrix A stencilled * Matrix B stencilled: ");
-    // for (int i = 0; i < size; i++) {
-    //     printf("%d ", h_C[i]);
-    // }
-    // printf("\n");
-
+    // GPU timing
+    t2 = clock();
+    t2sum = ((double)(t2-t1))/CLOCKS_PER_SEC;
+    printf ("Done. Compute took %f seconds\n", t2sum);
+    
 	// Free memory 
-    free(h_A);
-    free(h_B);
-    free(h_A_stencilled);
-    free(h_B_stencilled);
-    free(h_C);
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_A_stencilled);
-    cudaFree(d_B_stencilled);
-    cudaFree(d_C);
-
+    cudaFree(A);
+    cudaFree(B);
+    cudaFree(A_stencilled);
+    cudaFree(B_stencilled);
+    cudaFree(C);
 }
 
 
