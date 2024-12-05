@@ -8,16 +8,18 @@
 using namespace std;
 
 //#define N 64 -what was N? I think N+2*Radius = DSIZE: DSIZE should be N
-#define DSIZE 8 //NEED TO CHANGE BACK TO 512
+#define DSIZE 512 //NEED TO CHANGE BACK TO 512
 #define RADIUS 3
-#define BLOCK_SIZE 2
+#define BLOCK_SIZE 4
 
 
 __global__ void stencil_2d(int *in, int *out) {
 
 	//__shared__ int temp[BLOCK_SIZE + 2 * RADIUS][BLOCK_SIZE + 2 * RADIUS];
-	int row = threadIdx.x + blockIdx.x * blockDim.x; //column
-	int column = threadIdx.y + blockIdx.y * blockDim.y; //row
+	
+	int row = threadIdx.y + blockIdx.y * blockDim.y; //row - can switch row and column?
+    int column = threadIdx.x + blockIdx.x * blockDim.x; //column
+
     //int lindex_x = threadIdx.x + RADIUS;
 	//int lindex_y = threadIdx.y + RADIUS;
 
@@ -73,7 +75,7 @@ __global__ void matrix_mul_gpu(const int *A, const int *B, int *C, int size) {
         int temp = 0;
         for (int i = 0; i < size; i++){
             //Add dot product of row and column
-            temp += A [idx * size +idy] * B [idy * size +idx];
+            temp += A [idx * size +i] * B [i * size +idy];
         }
         C[idx*size+idy] = temp;                    
     }
@@ -238,7 +240,7 @@ int main(void) {
 	cudaMemcpy(h_B_stencilled, d_B_stencilled, size, cudaMemcpyDeviceToHost);
 
     //Launch matrix_mul kernel on GPU
-    matrix_mul_gpu<<<grid,block>>>(d_A_stencilled, d_B_stencilled, d_C, size);
+    matrix_mul_gpu<<<grid,block>>>(d_A_stencilled, d_B_stencilled, d_C, DSIZE);
     cudaCheckErrors("After applying matrix multiplication");
 
 	// Copy result back to host
