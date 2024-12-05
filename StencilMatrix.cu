@@ -10,7 +10,7 @@ using namespace std;
 //#define N 64 -what was N? I think N+2*Radius = DSIZE: DSIZE should be N
 #define DSIZE 512 //NEED TO CHANGE BACK TO 512
 #define RADIUS 3
-#define BLOCK_SIZE 4
+#define BLOCK_SIZE 32
 
 
 __global__ void stencil_2d(int *in, int *out) {
@@ -177,6 +177,14 @@ int main(void) {
     int *h_A, *h_A_stencilled, *h_B, *h_B_stencilled, *h_C; //host copies
     int *d_A, *d_A_stencilled, *d_B, *d_B_stencilled, *d_C; //device copies
 
+    // These are used for timing
+    clock_t t0, t1, t2;
+    double t1sum=0.0;
+    double t2sum=0.0;
+
+    // start timing
+    t0 = clock();
+
     //Alloc space for host copies 
     int size = (DSIZE)*(DSIZE) * sizeof(int);
     h_A = (int*)malloc(size);
@@ -198,17 +206,10 @@ int main(void) {
     printf("Matrix B: \n");
     printMatrix(h_B);
 
-    // printf("Matrix A: ");
-    // for (int i = 0; i < size; i++) {
-    //     printf("%d ", h_A[i]);
-    // }
-    // printf("\n");
-
-    // printf("Matrix B: ");
-    // for (int i = 0; i < size; i++) {
-    //     printf("%d ", h_B[i]);
-    // }
-    // printf("\n");
+    // Initialization timing
+    t1 = clock();
+    t1sum = ((double)(t1-t0))/CLOCKS_PER_SEC;
+    printf("Init took %f seconds.  Begin compute\n", t1sum);
     
     // Allocate device memory 
     cudaMalloc((void **)&d_A, size);
@@ -259,23 +260,10 @@ int main(void) {
     printf("Matrix A stencilled * Matrix B stencilled: \n");
     printMatrix(h_C);
 
-	// printf("Matrix A stencilled: ");
-    // for (int i = 0; i < size; i++) {
-    //     printf("%d ", h_A_stencilled[i]);
-    // }
-    // printf("\n");
-	
-    // printf("Matrix B stencilled: ");
-    // for (int i = 0; i < size; i++) {
-    //     printf("%d ", h_B_stencilled[i]);
-    // }
-    // printf("\n");
-
-    // printf("Matrix A stencilled * Matrix B stencilled: ");
-    // for (int i = 0; i < size; i++) {
-    //     printf("%d ", h_C[i]);
-    // }
-    // printf("\n");
+    // GPU timing
+    t2 = clock();
+    t2sum = ((double)(t2-t1))/CLOCKS_PER_SEC;
+    printf ("Done. Compute took %f seconds\n", t2sum);
 
 	// Free memory 
     free(h_A);
