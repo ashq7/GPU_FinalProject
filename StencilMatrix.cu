@@ -10,44 +10,38 @@ using namespace std;
 //#define N 64 -what was N? I think N+2*Radius = DSIZE: DSIZE should be N
 #define DSIZE 8 //NEED TO CHANGE BACK TO 512
 #define RADIUS 3
-#define BLOCK_SIZE 32
+#define BLOCK_SIZE 2
 
 
 __global__ void stencil_2d(int *in, int *out) {
 
-	__shared__ int temp[BLOCK_SIZE + 2 * RADIUS][BLOCK_SIZE + 2 * RADIUS];
-	int gindex_x = threadIdx.x + blockIdx.x * blockDim.x; //column
-	int lindex_x = threadIdx.x + RADIUS;
-	int gindex_y = threadIdx.y + blockIdx.y * blockDim.y; //row
-	int lindex_y = threadIdx.y + RADIUS;
+	//__shared__ int temp[BLOCK_SIZE + 2 * RADIUS][BLOCK_SIZE + 2 * RADIUS];
+	int row = threadIdx.x + blockIdx.x * blockDim.x; //column
+	int column = threadIdx.y + blockIdx.y * blockDim.y; //row
+    //int lindex_x = threadIdx.x + RADIUS;
+	//int lindex_y = threadIdx.y + RADIUS;
 
 	// Read input elements into shared memory
 	//int size = N + 2 * RADIUS; //becomes DSIZE
-	temp[lindex_x][lindex_y] = in[gindex_y + DSIZE * gindex_x]; 
+	int result = in[column + DSIZE * row]; 
+    out[column+DSIZE*row] = result;
 
-	if (threadIdx.x < RADIUS) {
-		temp[lindex_x-RADIUS][lindex_y]=in[gindex_y + DSIZE * (gindex_x - RADIUS)];
-		temp[lindex_x + BLOCK_SIZE][lindex_y] = in[gindex_y + DSIZE * (gindex_x + BLOCK_SIZE)]; 
+	if (row >= RADIUS && column >= RADIUS && (DSIZE-row) > RADIUS && (DSIZE-column) > RADIUS ) {
+		// Apply the stencil
+        //int result = 0;
+        for (int offset = -RADIUS; offset <= RADIUS; offset++){
+            //__syncthreads(); //makes sure we have access to everything in temp accessed across multiple threads
+            
+            //avoid double-counting 
+            if(offset!=0){
+                result += in[(row + offset)*DSIZE + column];
+                result += in[row*DSIZE + column + offset];
+            }
+        }
+        // Store the result
+        out[column+DSIZE*row] = result;
 	}
-
-	if (threadIdx.y < RADIUS ) {
-		temp[lindex_x][lindex_y-RADIUS]=in[(gindex_y - RADIUS)+ DSIZE * gindex_x];
-		temp[lindex_x][lindex_y + BLOCK_SIZE] = in[gindex_y + BLOCK_SIZE + DSIZE * gindex_x];
-	}
-
-	// Apply the stencil
-	int result = 0;
-	for (int offset = -RADIUS; offset <= RADIUS; offset++){
-		__syncthreads(); //makes sure we have access to everything in temp accessed across multiple threads
-		result += temp[lindex_x + offset][lindex_y];
-		//avoid double-counting 
-		if(offset!=0){
-			result += temp[lindex_x][lindex_y + offset];
-		}
-	}
-
-	// Store the result
-	out[gindex_y+DSIZE*gindex_x] = result;
+    //printf("at index [%d,%d], result is: %d\n", row,column, result);
 }
 
 // Square matrix multiplication on CPU : C = A * B
@@ -103,13 +97,13 @@ int error_stencil (int* stencilled, int* original){
                     return -1;
                 }
             }		 
-            else { // EDIT- wrong!
+            else { 
                 int expectedResult = original[i*DSIZE+j];
                 for (int k=1; k<=RADIUS; k++){
                     expectedResult +=original[(i+k)*DSIZE+j];
                     expectedResult +=original[(i-k)*DSIZE+j];
-                    expectedResult +=original[i+(j+k)*DSIZE];
-                    expectedResult +=original[i+(j-k)*DSIZE];
+                    expectedResult +=original[i*DSIZE+(j+k)];
+                    expectedResult +=original[i*DSIZE+(j-k)];
                 }
                 if (stencilled[i*DSIZE+j] != expectedResult) {
                     printf("Mismatch at index [%d,%d], was: %d, should be: %d\n", i,j, stencilled[i*DSIZE+j], expectedResult);
@@ -161,6 +155,20 @@ void fill_ints(int *x, int n) {
    //takes in matrix, starts at pointer and fills subsequent n with value (1 here)
 }
 
+//Elliott helped me with print Matrix function
+int printMatrix(int *A, int limit = 8) {
+    std::cout<<"-              -\n";
+    for (int i = 0; i < limit; i++) {
+        std::cout<<"| ";
+        for (int j = 0; j < limit; j++) {
+            std::cout<<A[i*DSIZE+j]<<" ";
+        }
+        std::cout<<" |\n";
+    }
+    std::cout<<"-              -\n\n";
+    return 0;
+}
+
 
 int main(void) {
 
@@ -183,18 +191,22 @@ int main(void) {
         h_B_stencilled[i]=0;
         h_C[i] = 0;
     }
+    printf("Matrix A: \n");
+    printMatrix(h_A);
+    printf("Matrix B: \n");
+    printMatrix(h_B);
 
-    printf("Matrix A: ");
-    for (int i = 0; i < size; i++) {
-        printf("%d ", h_A[i]);
-    }
-    printf("\n");
+    // printf("Matrix A: ");
+    // for (int i = 0; i < size; i++) {
+    //     printf("%d ", h_A[i]);
+    // }
+    // printf("\n");
 
-    printf("Matrix B: ");
-    for (int i = 0; i < size; i++) {
-        printf("%d ", h_B[i]);
-    }
-    printf("\n");
+    // printf("Matrix B: ");
+    // for (int i = 0; i < size; i++) {
+    //     printf("%d ", h_B[i]);
+    // }
+    // printf("\n");
     
     // Allocate device memory 
     cudaMalloc((void **)&d_A, size);
@@ -210,44 +222,58 @@ int main(void) {
     cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_B_stencilled, h_B_stencilled, size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_C, h_C, size, cudaMemcpyHostToDevice);
+    cudaCheckErrors("After copy from host to device");
 
 	// Launch stencil_2d() kernel on GPU
 	int gridSize = DSIZE/BLOCK_SIZE; //from Asignment 2 mult_matrix.cu
 	dim3 grid(gridSize, gridSize);
 	dim3 block(BLOCK_SIZE, BLOCK_SIZE);
 	
-	stencil_2d<<<grid,block>>>(d_A + RADIUS*(DSIZE) + RADIUS , d_A_stencilled + RADIUS*(DSIZE) + RADIUS); //QUESTION: confused how the plus works?
-	stencil_2d<<<grid,block>>>(d_B + RADIUS*(DSIZE) + RADIUS , d_B_stencilled + RADIUS*(DSIZE) + RADIUS);
+	stencil_2d<<<grid,block>>>(d_A , d_A_stencilled); //QUESTION: confused how the plus works?
+    cudaCheckErrors("After applying stencil to matrix A");
+	stencil_2d<<<grid,block>>>(d_B , d_B_stencilled);
+    cudaCheckErrors("After applying stencil to matrix B");
+
+    cudaMemcpy(h_A_stencilled, d_A_stencilled, size, cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_B_stencilled, d_B_stencilled, size, cudaMemcpyDeviceToHost);
 
     //Launch matrix_mul kernel on GPU
     matrix_mul_gpu<<<grid,block>>>(d_A_stencilled, d_B_stencilled, d_C, size);
+    cudaCheckErrors("After applying matrix multiplication");
 
 	// Copy result back to host
 	cudaMemcpy(h_A_stencilled, d_A_stencilled, size, cudaMemcpyDeviceToHost);
 	cudaMemcpy(h_B_stencilled, d_B_stencilled, size, cudaMemcpyDeviceToHost);
     cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
 
-    error_stencil(h_A, h_A_stencilled);
-    error_stencil(h_B, h_B_stencilled);
+    error_stencil(h_A_stencilled, h_A);
+    error_stencil(h_B_stencilled, h_B);
     error_matrix_mul_gpu(h_A_stencilled, h_B_stencilled, h_C, DSIZE);
 
-	printf("Matrix A stencilled: ");
-    for (int i = 0; i < size; i++) {
-        printf("%d ", h_A_stencilled[i]);
-    }
-    printf("\n");
-	
-    printf("Matrix B stencilled: ");
-    for (int i = 0; i < size; i++) {
-        printf("%d ", h_B_stencilled[i]);
-    }
-    printf("\n");
+    printf("Matrix A stencilled: \n");
+    printMatrix(h_A_stencilled);
+    printf("Matrix B stencilled: \n");
+    printMatrix(h_B_stencilled);
+    printf("Matrix A stencilled * Matrix B stencilled: \n");
+    printMatrix(h_C);
 
-    printf("Matrix A stencilled * Matrix B stencilled: ");
-    for (int i = 0; i < size; i++) {
-        printf("%d ", h_C[i]);
-    }
-    printf("\n");
+	// printf("Matrix A stencilled: ");
+    // for (int i = 0; i < size; i++) {
+    //     printf("%d ", h_A_stencilled[i]);
+    // }
+    // printf("\n");
+	
+    // printf("Matrix B stencilled: ");
+    // for (int i = 0; i < size; i++) {
+    //     printf("%d ", h_B_stencilled[i]);
+    // }
+    // printf("\n");
+
+    // printf("Matrix A stencilled * Matrix B stencilled: ");
+    // for (int i = 0; i < size; i++) {
+    //     printf("%d ", h_C[i]);
+    // }
+    // printf("\n");
 
 	// Free memory 
     free(h_A);
